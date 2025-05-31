@@ -1,5 +1,7 @@
+
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
+from flask_cors import CORS  # ✅ Add this line
 import os
 import fitz  # PyMuPDF for PDF
 import docx  # python-docx for Word
@@ -9,6 +11,8 @@ import bibtexparser  # For .bib files
 from difflib import SequenceMatcher
 
 app = Flask(__name__)
+CORS(app)  # ✅ Enable CORS for all routes
+
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
