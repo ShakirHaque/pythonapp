@@ -1,7 +1,6 @@
-
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from flask_cors import CORS  # ✅ Add this line
+from flask_cors import CORS  # ✅ CORS import
 import os
 import fitz  # PyMuPDF for PDF
 import docx  # python-docx for Word
@@ -11,7 +10,9 @@ import bibtexparser  # For .bib files
 from difflib import SequenceMatcher
 
 app = Flask(__name__)
-CORS(app)  # ✅ Enable CORS for all routes
+
+# ✅ CORS configured to allow all origins (works with browser & Flutter Web)
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 UPLOAD_FOLDER = 'uploads'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
