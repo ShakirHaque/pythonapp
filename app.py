@@ -1,6 +1,6 @@
 from flask import Flask, request, jsonify
 from werkzeug.utils import secure_filename
-from flask_cors import CORS  # ✅ CORS import
+from flask_cors import CORS
 import os
 import fitz  # PyMuPDF for PDF
 import docx  # python-docx for Word
@@ -11,7 +11,7 @@ from difflib import SequenceMatcher
 
 app = Flask(__name__)
 
-# ✅ CORS configured to allow all origins (works with browser & Flutter Web)
+# ✅ Enable CORS for all routes and methods
 CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=True)
 
 UPLOAD_FOLDER = 'uploads'
@@ -90,8 +90,11 @@ def verify_references(file_path):
         })
     return results
 
-@app.route('/verify', methods=['POST'])
+@app.route('/verify', methods=['POST', 'OPTIONS'])
 def verify():
+    if request.method == 'OPTIONS':
+        return jsonify({'message': 'CORS preflight'}), 200
+
     if 'file' not in request.files:
         return jsonify({'error': 'No file uploaded'}), 400
 
@@ -103,8 +106,33 @@ def verify():
     results = verify_references(filepath)
     return jsonify(results)
 
-@app.route('/ping', methods=['POST'])
+@app.route('/verify-text', methods=['POST', 'OPTIONS'])
+def verify_text_reference():
+    if request.method == 'OPTIONS':
+        return jsonify({'message': 'CORS preflight'}), 200
+
+    data = request.get_json()
+    if not data or 'reference' not in data:
+        return jsonify({'error': 'No reference provided'}), 400
+
+    ref = data['reference'].strip()
+    if len(ref) < 10:
+        return jsonify({'error': 'Reference text is too short'}), 400
+
+    source, found = search_reference_online(ref)
+    is_llm = detect_llm_generated(ref)
+
+    result = {
+        'reference': ref,
+        'source_found': source,
+        'is_llm_generated': is_llm
+    }
+    return jsonify(result)
+
+@app.route('/ping', methods=['POST', 'OPTIONS'])
 def ping():
+    if request.method == 'OPTIONS':
+        return jsonify({'message': 'CORS preflight'}), 200
     return jsonify({"message": "pong"})
 
 if __name__ == '__main__':
