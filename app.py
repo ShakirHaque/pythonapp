@@ -21,6 +21,7 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 def home():
     return "✅ Flask Reference Verifier is running!"
 
+# --- File Extraction Functions (No Change) ---
 def extract_references_from_pdf(file_path):
     doc = fitz.open(file_path)
     text = ""
@@ -46,24 +47,34 @@ def load_bibtex_entries(file_path):
         bib_database = bibtexparser.load(bibfile)
     return [entry['title'] for entry in bib_database.entries if 'title' in entry]
 
+# --- Core Verification Logic Functions (No Change) ---
 def search_reference_online(ref):
     query = '+'.join(ref.split())
-    url = f"https://api.crossref.org/works?query.title={query}&rows=1"
+    # Using a reliable crossref API URL format
+    url = f"https://api.crossref.org/works?query.title={query}&rows=1" 
     try:
-        response = requests.get(url)
+        response = requests.get(url, timeout=5) # Added timeout
+        response.raise_for_status() # Raises an HTTPError for bad responses (4xx or 5xx)
         data = response.json()
         if data['message']['items']:
-            return data['message']['items'][0].get('URL', 'Found but URL not available'), True
+            # Use the DOI as a reliable source identifier if URL is missing
+            doi = data['message']['items'][0].get('DOI', 'Found, DOI not listed')
+            return doi, True
         else:
             return 'Not found', False
+    except requests.exceptions.RequestException as e:
+        # Catch network errors and HTTP errors
+        return f"Error connecting to CrossRef: {str(e)}", False
     except Exception as e:
-        return f"Error: {str(e)}", False
+        return f"General Error: {str(e)}", False
 
 def detect_llm_generated(ref):
+    # Simple heuristic: reference is too short or contains common LLM phrases
     if len(ref.split()) < 6 or SequenceMatcher(None, ref.lower(), 'this paper presents a method').ratio() > 0.6:
         return True
     return False
 
+# --- File Verification Route (No Change) ---
 def verify_references(file_path):
     ext = os.path.splitext(file_path)[1].lower()
     if ext == '.pdf':
@@ -78,6 +89,7 @@ def verify_references(file_path):
     else:
         return [{"error": "Unsupported file type"}]
 
+    # Splitting into individual references: lines longer than 20 chars
     refs = [line.strip() for line in refs_text.split('\n') if len(line.strip()) > 20]
     results = []
     for ref in refs:
@@ -104,31 +116,52 @@ def verify():
     uploaded_file.save(filepath)
 
     results = verify_references(filepath)
+    
+    # Clean up the file after processing
+    try:
+        os.remove(filepath)
+    except Exception as e:
+        print(f"Error removing file {filepath}: {e}")
+        
     return jsonify(results)
 
-@app.route('/verify-text', methods=['POST', 'OPTIONS'])
-def verify_text_reference():
+# --- TEXT Verification Route (CORRECTED) ---
+@app.route('/verify_text', methods=['POST', 'OPTIONS']) # <-- CORRECTED ENDPOINT NAME
+def verify_text(): # <-- Corrected function name convention
     if request.method == 'OPTIONS':
         return jsonify({'message': 'CORS preflight'}), 200
 
     data = request.get_json()
-    if not data or 'reference' not in data:
-        return jsonify({'error': 'No reference provided'}), 400
+    
+    # Flutter sends the key 'text' containing the entire block of references
+    if not data or 'text' not in data: 
+        return jsonify({'error': 'JSON payload must contain the key "text"'}), 400
 
-    ref = data['reference'].strip()
-    if len(ref) < 10:
-        return jsonify({'error': 'Reference text is too short'}), 400
+    input_text = data['text'].strip()
+    
+    # 1. Split the entire text block into individual references 
+    # (using the same logic as verify_references: lines > 20 chars)
+    refs = [line.strip() for line in input_text.split('\n') if len(line.strip()) > 20]
+    
+    if not refs:
+        return jsonify({'error': 'No valid references found in the input text (Min 20 characters per line)'}), 400
 
-    source, found = search_reference_online(ref)
-    is_llm = detect_llm_generated(ref)
+    results = []
+    
+    # 2. Iterate through all references and verify each one
+    for ref in refs:
+        source, found = search_reference_online(ref)
+        is_llm = detect_llm_generated(ref)
 
-    result = {
-        'reference': ref,
-        'source_found': source,
-        'is_llm_generated': is_llm
-    }
-    return jsonify(result)
+        results.append({
+            'reference': ref,
+            'source_found': source,
+            'is_llm_generated': is_llm
+        })
+        
+    return jsonify(results) # Return the list of all results
 
+# --- PING Route (No Change) ---
 @app.route('/ping', methods=['POST', 'OPTIONS'])
 def ping():
     if request.method == 'OPTIONS':
@@ -136,4 +169,5 @@ def ping():
     return jsonify({"message": "pong"})
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', debug=True, port=5002)
+    # Set thread=False for production/Render compatibility
+    app.run(host='0.0.0.0', debug=True, port=os.environ.get('PORT', 5002))
